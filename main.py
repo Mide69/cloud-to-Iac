@@ -51,9 +51,23 @@ def convert(region, profile, output_format, output, ai, dry_run, resources):
         allowed = set(resources.split(","))
         type_map = {
             "vpc": "vpcs", "subnet": "subnets", "igw": "internet_gateways",
-            "rt": "route_tables", "sg": "security_groups", "ec2": "ec2_instances",
-            "s3": "s3_buckets", "rds": "rds_instances", "iam": "iam_roles",
-            "alb": "load_balancers", "asg": "auto_scaling_groups",
+            "nat": "nat_gateways", "eip": "elastic_ips",
+            "rt": "route_tables", "sg": "security_groups",
+            "nacl": "network_acls", "peer": "vpc_peering", "endpoint": "vpc_endpoints",
+            "ec2": "ec2_instances", "lambda": "lambda_functions",
+            "ecs": "ecs_clusters", "ecstask": "ecs_task_definitions", "ecssvc": "ecs_services",
+            "eks": "eks_clusters", "ecr": "ecr_repositories",
+            "s3": "s3_buckets", "rds": "rds_instances",
+            "dynamo": "dynamodb_tables", "cache": "elasticache_clusters",
+            "efs": "efs_file_systems", "ebs": "ebs_volumes",
+            "apigw": "rest_apis", "httpapi": "http_apis",
+            "cf": "cloudfront_distributions", "r53": "route53_zones",
+            "acm": "acm_certificates", "sns": "sns_topics", "sqs": "sqs_queues",
+            "kinesis": "kinesis_streams", "eb": "eventbridge_rules",
+            "secret": "secrets", "kms": "kms_keys",
+            "alarm": "cloudwatch_alarms", "logs": "cloudwatch_log_groups",
+            "pipeline": "codepipelines", "build": "codebuild_projects", "waf": "waf_web_acls",
+            "iam": "iam_roles", "alb": "load_balancers", "asg": "auto_scaling_groups",
         }
         all_resources = {type_map[k]: v for k, v in [(k, all_resources.get(type_map.get(k, k), [])) for k in allowed] if k in type_map}
 
@@ -161,11 +175,35 @@ def _print_summary(resources: dict):
     table.add_column("Count", justify="right", style="green")
 
     labels = {
+        # Networking
         "vpcs": "VPCs", "subnets": "Subnets", "internet_gateways": "Internet Gateways",
+        "nat_gateways": "NAT Gateways", "elastic_ips": "Elastic IPs",
         "route_tables": "Route Tables", "security_groups": "Security Groups",
-        "ec2_instances": "EC2 Instances", "s3_buckets": "S3 Buckets",
-        "rds_instances": "RDS Instances", "iam_roles": "IAM Roles",
-        "load_balancers": "Load Balancers", "auto_scaling_groups": "Auto Scaling Groups",
+        "network_acls": "Network ACLs", "vpc_peering": "VPC Peering Connections",
+        "vpc_endpoints": "VPC Endpoints",
+        # Compute & containers
+        "ec2_instances": "EC2 Instances", "lambda_functions": "Lambda Functions",
+        "ecs_clusters": "ECS Clusters", "ecs_task_definitions": "ECS Task Definitions",
+        "ecs_services": "ECS Services", "eks_clusters": "EKS Clusters",
+        "ecr_repositories": "ECR Repositories",
+        # Storage & databases
+        "s3_buckets": "S3 Buckets", "rds_instances": "RDS Instances",
+        "dynamodb_tables": "DynamoDB Tables", "elasticache_clusters": "ElastiCache Clusters",
+        "efs_file_systems": "EFS File Systems", "ebs_volumes": "EBS Volumes",
+        # App, API & messaging
+        "rest_apis": "API Gateway REST APIs", "http_apis": "API Gateway HTTP APIs",
+        "cloudfront_distributions": "CloudFront Distributions",
+        "route53_zones": "Route 53 Hosted Zones", "acm_certificates": "ACM Certificates",
+        "sns_topics": "SNS Topics", "sqs_queues": "SQS Queues",
+        "kinesis_streams": "Kinesis Streams", "eventbridge_rules": "EventBridge Rules",
+        # Security, monitoring & DevOps
+        "secrets": "Secrets Manager Secrets", "kms_keys": "KMS Keys",
+        "cloudwatch_alarms": "CloudWatch Alarms", "cloudwatch_log_groups": "CloudWatch Log Groups",
+        "codepipelines": "CodePipelines", "codebuild_projects": "CodeBuild Projects",
+        "waf_web_acls": "WAF Web ACLs",
+        # Other
+        "iam_roles": "IAM Roles", "load_balancers": "Load Balancers",
+        "auto_scaling_groups": "Auto Scaling Groups",
     }
 
     total = 0
