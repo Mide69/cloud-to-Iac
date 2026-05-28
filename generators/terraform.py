@@ -3,9 +3,10 @@ from utils.helpers import slugify, tags_to_tf, sg_rule_to_tf
 
 
 class TerraformGenerator:
-    def __init__(self, resources: dict, region: str):
+    def __init__(self, resources: dict, region: str, role_arn: str = None):
         self.resources = resources
         self.region = region
+        self.role_arn = role_arn
         self._id_map = {}
 
     def generate(self) -> str:
@@ -34,6 +35,7 @@ class TerraformGenerator:
         return "\n\n".join(filter(None, sections))
 
     def _build_id_map(self):
+        self._id_map.clear()
         for vpc in self.resources.get("vpcs", []):
             name = vpc["tags"].get("Name", vpc["id"])
             self._id_map[vpc["id"]] = f"aws_vpc.{slugify(name)}"
@@ -59,6 +61,15 @@ class TerraformGenerator:
         return f"{tf_ref}.{attr}" if tf_ref else f'"{raw_id}"'
 
     def _provider_block(self) -> str:
+        assume_role_block = ""
+        if self.role_arn:
+            if any(c in self.role_arn for c in ('"', '\n', '\r', '\\', '$', '{')):
+                raise ValueError(f"role_arn contains characters that are invalid in an ARN: {self.role_arn!r}")
+            assume_role_block = f'''
+  assume_role {{
+    role_arn     = "{self.role_arn}"
+    session_name = "terraform"
+  }}'''
         return f'''terraform {{
   required_providers {{
     aws = {{
@@ -69,7 +80,7 @@ class TerraformGenerator:
 }}
 
 provider "aws" {{
-  region = "{self.region}"
+  region = "{self.region}"{assume_role_block}
 }}'''
 
     # ── Networking ────────────────────────────────────────────────────────────
@@ -893,7 +904,9 @@ resource "aws_kms_alias" "{slug}_alias" {{
   name = "{role['name']}"
   path = "{role['path']}"
 
-  assume_role_policy = jsonencode({assume_policy})
+  assume_role_policy = <<-JSON
+{assume_policy}
+JSON
 }}''')
             for policy_arn in role.get("attached_policies", []):
                 policy_slug = slugify(policy_arn.split("/")[-1])

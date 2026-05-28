@@ -1,5 +1,6 @@
 import json
 import boto3
+from datetime import timezone
 from botocore.exceptions import ClientError
 from rich.console import Console
 
@@ -7,9 +8,31 @@ console = Console()
 
 
 class AWSDiscoverer:
-    def __init__(self, region: str, profile: str = None):
+    def __init__(self, region: str, profile: str = None, role_arn: str = None, role_session_name: str = "cloud-to-iac"):
         self.region = region
+
+        if profile is not None and not profile:
+            console.print("[yellow]Warning: empty --profile value ignored, using default credential chain[/yellow]")
+            profile = None
         session = boto3.Session(profile_name=profile, region_name=region) if profile else boto3.Session(region_name=region)
+
+        self._role_expiry = None
+        if role_arn:
+            try:
+                sts = session.client("sts")
+                creds = sts.assume_role(RoleArn=role_arn, RoleSessionName=role_session_name)["Credentials"]
+            except ClientError as e:
+                raise RuntimeError(
+                    f"Failed to assume role '{role_arn}': {e.response['Error']['Message']}. "
+                    "Check the role ARN and that the current identity has sts:AssumeRole permission."
+                ) from e
+            self._role_expiry = creds["Expiration"]
+            session = boto3.Session(
+                aws_access_key_id=creds["AccessKeyId"],
+                aws_secret_access_key=creds["SecretAccessKey"],
+                aws_session_token=creds["SessionToken"],
+                region_name=region,
+            )
         # Core
         self.ec2            = session.client("ec2")
         self.s3             = session.client("s3")
@@ -47,6 +70,9 @@ class AWSDiscoverer:
 
     def discover_all(self) -> dict:
         console.print("[bold cyan]Discovering AWS infrastructure...[/bold cyan]")
+        if self._role_expiry:
+            expiry_utc = self._role_expiry.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            console.print(f"[yellow]Note: assumed-role credentials expire at {expiry_utc}. Ensure the scan completes before then.[/yellow]")
         resources = {}
         steps = [
             # Networking
@@ -98,6 +124,7 @@ class AWSDiscoverer:
             ("iam_roles",               self.discover_iam_roles),
             ("auto_scaling_groups",     self.discover_asg),
         ]
+        failed = []
         for name, fn in steps:
             try:
                 console.print(f"  [yellow]→[/yellow] Scanning {name}...")
@@ -108,10 +135,17 @@ class AWSDiscoverer:
                     console.print(f"  [dim]  0 {name}[/dim]")
             except ClientError as e:
                 console.print(f"  [red]✗[/red] {name}: {e.response['Error']['Message']}")
-                resources[name] = []
+                failed.append(name)
             except Exception as e:
-                console.print(f"  [red]✗[/red] {name}: {str(e)[:80]}")
-                resources[name] = []
+                console.print(f"  [red]✗[/red] {name}: {str(e)[:200]}")
+                failed.append(name)
+        if failed:
+            resources["_scan_failures"] = failed
+            console.print(
+                f"\n[bold yellow]Warning:[/bold yellow] [yellow]{len(failed)} resource type(s) failed to scan: "
+                f"{', '.join(failed)}\nGenerated IaC will be missing these resources. "
+                "Check permissions and network connectivity.[/yellow]"
+            )
         return resources
 
     # ── Networking ────────────────────────────────────────────────────────────
@@ -313,12 +347,22 @@ class AWSDiscoverer:
                 })
         return functions
 
+    def _list_ecs_cluster_arns(self) -> list:
+        arns = []
+        paginator = self.ecs.get_paginator("list_clusters")
+        for page in paginator.paginate():
+            arns.extend(page.get("clusterArns", []))
+        return arns
+
     def discover_ecs_clusters(self) -> list:
         clusters = []
-        arns = self.ecs.list_clusters().get("clusterArns", [])
+        arns = self._list_ecs_cluster_arns()
         if not arns:
             return []
-        for cluster in self.ecs.describe_clusters(clusters=arns, include=["TAGS"])["clusters"]:
+        all_clusters = []
+        for i in range(0, len(arns), 100):
+            all_clusters.extend(self.ecs.describe_clusters(clusters=arns[i:i+100], include=["TAGS"])["clusters"])
+        for cluster in all_clusters:
             clusters.append({
                 "name": cluster["clusterName"],
                 "arn": cluster["clusterArn"],
@@ -329,12 +373,19 @@ class AWSDiscoverer:
 
     def discover_ecs_services(self) -> list:
         services = []
-        cluster_arns = self.ecs.list_clusters().get("clusterArns", [])
+        cluster_arns = self._list_ecs_cluster_arns()
+        svc_paginator = self.ecs.get_paginator("list_services")
+        batch_size = 10
         for cluster_arn in cluster_arns:
-            svc_arns = self.ecs.list_services(cluster=cluster_arn).get("serviceArns", [])
+            svc_arns = []
+            for page in svc_paginator.paginate(cluster=cluster_arn):
+                svc_arns.extend(page.get("serviceArns", []))
             if not svc_arns:
                 continue
-            for svc in self.ecs.describe_services(cluster=cluster_arn, services=svc_arns)["services"]:
+            all_svcs = []
+            for i in range(0, len(svc_arns), batch_size):
+                all_svcs.extend(self.ecs.describe_services(cluster=cluster_arn, services=svc_arns[i:i+batch_size])["services"])
+            for svc in all_svcs:
                 net_config = svc.get("networkConfiguration", {}).get("awsvpcConfiguration", {})
                 services.append({
                     "name": svc["serviceName"],
@@ -351,7 +402,9 @@ class AWSDiscoverer:
 
     def discover_ecs_task_defs(self) -> list:
         task_defs = []
-        arns = self.ecs.list_task_definitions(status="ACTIVE").get("taskDefinitionArns", [])
+        arns = []
+        for page in self.ecs.get_paginator("list_task_definitions").paginate(status="ACTIVE"):
+            arns.extend(page.get("taskDefinitionArns", []))
         seen_families = set()
         for arn in reversed(arns):
             family = arn.split("/")[-1].rsplit(":", 1)[0]
@@ -374,7 +427,9 @@ class AWSDiscoverer:
 
     def discover_eks(self) -> list:
         clusters = []
-        names = self.eks.list_clusters().get("clusters", [])
+        names = []
+        for page in self.eks.get_paginator("list_clusters").paginate():
+            names.extend(page.get("clusters", []))
         for name in names:
             c = self.eks.describe_cluster(name=name)["cluster"]
             resources_vpc = c.get("resourcesVpcConfig", {})
@@ -820,11 +875,16 @@ class AWSDiscoverer:
             for r in page["Roles"]:
                 if "aws-service-role" in r["Path"]:
                     continue
-                attached = self.iam.list_attached_role_policies(RoleName=r["RoleName"])
+                attached_policies = []
+                try:
+                    for ap in self.iam.get_paginator("list_attached_role_policies").paginate(RoleName=r["RoleName"]):
+                        attached_policies.extend(p["PolicyArn"] for p in ap.get("AttachedPolicies", []))
+                except ClientError as e:
+                    console.print(f"  [yellow]Warning: could not list policies for role {r['RoleName']}: {e.response['Error']['Message']}[/yellow]")
                 roles.append({
                     "name": r["RoleName"], "path": r["Path"],
                     "assume_role_policy": r["AssumeRolePolicyDocument"],
-                    "attached_policies": [p["PolicyArn"] for p in attached.get("AttachedPolicies", [])],
+                    "attached_policies": attached_policies,
                 })
         return roles
 

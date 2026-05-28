@@ -7,8 +7,10 @@ class CloudFormationGenerator:
     def __init__(self, resources: dict, region: str):
         self.resources = resources
         self.region = region
+        self._lid_seen: set = set()
 
     def generate(self) -> str:
+        self._lid_seen = set()
         template = {
             "AWSTemplateFormatVersion": "2010-09-09",
             "Description": f"CloudFormation template generated from live AWS infrastructure in {self.region}",
@@ -46,7 +48,16 @@ class CloudFormationGenerator:
 
     def _lid(self, value: str, prefix: str = "") -> str:
         slug = slugify(value).replace("_", "").replace("-", "")
-        return f"{prefix}{slug[:60].capitalize()}"
+        base = f"{prefix}{slug[:60].capitalize()}" or f"{prefix}Resource"
+        if base not in self._lid_seen:
+            self._lid_seen.add(base)
+            return base
+        i = 2
+        while f"{base}{i}" in self._lid_seen:
+            i += 1
+        result = f"{base}{i}"
+        self._lid_seen.add(result)
+        return result
 
     def _parameters(self) -> dict:
         params = {}
