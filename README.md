@@ -24,8 +24,9 @@ git clone https://github.com/Mide69/cloud-to-Iac.git
 cd cloud-to-Iac
 
 python -m venv venv
-source venv/bin/activate      # Mac/Linux
-venv\Scripts\activate         # Windows
+source venv/bin/activate          # Mac/Linux
+source venv/Scripts/activate      # Windows (Git Bash)
+venv\Scripts\activate             # Windows (Command Prompt / PowerShell)
 
 pip install -r requirements.txt
 
