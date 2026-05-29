@@ -1,105 +1,82 @@
 # cloud-to-iac
 
-Ever inherited an AWS account with zero documentation and had to figure out what's running? That's what this tool is for.
-
-`cloud-to-iac` connects to your live AWS account, discovers what's actually there, and writes it all out as Terraform HCL or CloudFormation YAML — ready to import into state and manage going forward. It covers 41 resource types across networking, compute, storage, databases, messaging, security, and DevOps services.
+Connects to your live AWS account, discovers what's running, and writes it all out as **Terraform HCL** or **CloudFormation YAML**. Covers 41 resource types across networking, compute, storage, databases, messaging, security, and DevOps services.
 
 ---
 
-## What it does
+## Requirements
 
-- Scans your AWS account using boto3 and produces a full resource inventory
-- Generates Terraform or CloudFormation code with real cross-references (so you get `aws_vpc.prod.id` instead of a hardcoded `vpc-0abc1234`)
-- Saves an `inventory.json` snapshot so you can re-generate code later without hitting AWS again
-- Optionally passes the output through Claude to clean up variable names, fix dependencies, and apply security best practices
-- Supports every AWS auth method: access keys, named profiles, IAM instance/task roles, OIDC (GitHub Actions, EKS IRSA), and cross-account role assumption
+- Docker installed and running
+- AWS credentials (access keys, a named profile, or an IAM role)
+- The image pulled from the private registry (contact the distributor for access)
+
+---
+
+## Pull the image
+
+```bash
+docker pull yourusername/cloud-to-iac:latest
+```
 
 ---
 
 ## Quickstart
 
 ```bash
-# 1. Clone and set up
-git clone https://github.com/Mide69/cloud-to-Iac.git
-cd cloud-to-Iac
-
-python -m venv venv
-source venv/bin/activate          # Mac/Linux
-source venv/Scripts/activate      # Windows (Git Bash)
-venv\Scripts\activate             # Windows (Command Prompt / PowerShell)
-
-pip install -r requirements.txt
-
-# 2. Configure credentials
-cp .env.example .env
-# Edit .env — see Authentication section below
-
-# 3. Run it
-python main.py convert --region us-east-1 --format terraform
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID=your_key \
+  -e AWS_SECRET_ACCESS_KEY=your_secret \
+  -e AWS_DEFAULT_REGION=us-east-1 \
+  -v $(pwd)/output:/output \
+  yourusername/cloud-to-iac:latest \
+  convert --region us-east-1 --format terraform --output /output
 ```
 
-Output lands in `./output/main.tf` and `./output/inventory.json` by default.
+Your generated files will land in `./output/` on your machine.
 
 ---
 
-## Authentication
+## Passing AWS credentials
 
-The tool picks up credentials however boto3 normally would, so most setups work without any extra configuration. Here are the options:
+There are three ways to give the container access to your AWS account. Use whichever fits your setup.
 
-### Option 1 — Access keys in .env
-
-```env
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_DEFAULT_REGION=us-east-1
-```
-
-### Option 2 — Named AWS CLI profile
+### Option 1 — Environment variables
 
 ```bash
-python main.py convert --region us-east-1 --profile your-profile-name
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID=your_key \
+  -e AWS_SECRET_ACCESS_KEY=your_secret \
+  -v $(pwd)/output:/output \
+  yourusername/cloud-to-iac:latest \
+  convert --region us-east-1 --output /output
 ```
 
-This reads from `~/.aws/credentials` as usual.
+### Option 2 — Mount your AWS credentials file
 
-### Option 3 — IAM role attached to your instance or task
-
-If you're running this on an EC2 instance, ECS task, or Lambda, boto3 picks up the attached role automatically. Nothing to configure.
-
-### Option 4 — OIDC / web identity (GitHub Actions, EKS IRSA, etc.)
-
-Set `AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_ROLE_ARN` in your environment — your CI provider usually does this for you. For GitHub Actions specifically:
-
-```yaml
-- uses: aws-actions/configure-aws-credentials@v4
-  with:
-    role-to-assume: arn:aws:iam::123456789012:role/cloud-to-iac-reader
-    aws-region: us-east-1
-
-- run: python main.py convert --region us-east-1 --format terraform
-```
-
-No `--role-arn` flag needed. `configure-aws-credentials` handles everything.
-
-### Option 5 — Explicit role assumption (cross-account)
+If you already have profiles set up in `~/.aws`, mount the whole directory:
 
 ```bash
-python main.py convert --region us-east-1 \
-  --role-arn arn:aws:iam::123456789012:role/ReadOnlyRole
+docker run --rm \
+  -v ~/.aws:/root/.aws:ro \
+  -v $(pwd)/output:/output \
+  yourusername/cloud-to-iac:latest \
+  convert --region us-east-1 --profile your-profile --output /output
 ```
 
-When you use `--role-arn` with Terraform output, the generated provider block automatically includes an `assume_role` stanza so Terraform uses the same role when you run `terraform plan` / `apply`:
+### Option 3 — Cross-account role assumption
 
-```hcl
-provider "aws" {
-  region = "us-east-1"
-
-  assume_role {
-    role_arn     = "arn:aws:iam::123456789012:role/ReadOnlyRole"
-    session_name = "terraform"
-  }
-}
+```bash
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID=your_key \
+  -e AWS_SECRET_ACCESS_KEY=your_secret \
+  -v $(pwd)/output:/output \
+  yourusername/cloud-to-iac:latest \
+  convert --region us-east-1 \
+  --role-arn arn:aws:iam::123456789012:role/ReadOnlyRole \
+  --output /output
 ```
+
+When using `--role-arn` with Terraform output, the generated provider block automatically includes an `assume_role` stanza.
 
 ---
 
@@ -107,101 +84,127 @@ provider "aws" {
 
 ### Step 1 — Scan your account first
 
-Before generating anything, run `scan` to see what the tool will find. It's read-only and produces no output files.
+Run `scan` to see what will be discovered. It's read-only and writes no files.
 
 ```bash
-python main.py scan --region us-east-1
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID=your_key \
+  -e AWS_SECRET_ACCESS_KEY=your_secret \
+  yourusername/cloud-to-iac:latest \
+  scan --region us-east-1
 ```
 
-You'll get a table like this:
-
-```
-┌────────────────────────────────┐
-│       Discovered Resources     │
-├──────────────────────┬─────────┤
-│ Resource Type        │ Count   │
-├──────────────────────┼─────────┤
-│ VPCs                 │ 2       │
-│ Subnets              │ 12      │
-│ Security Groups      │ 18      │
-│ EC2 Instances        │ 7       │
-│ Lambda Functions     │ 34      │
-│ S3 Buckets           │ 9       │
-│ RDS Instances        │ 3       │
-│ ECS Clusters         │ 2       │
-│ IAM Roles            │ 41      │
-│ Total                │ 128     │
-└──────────────────────┴─────────┘
-```
-
-If something looks wrong — wrong count, missing resources — check your IAM permissions against the list in the [Permissions](#required-iam-permissions) section.
+You'll get a table showing resource counts. If something looks off, check the [IAM permissions](#required-iam-permissions) section.
 
 ### Step 2 — Generate the IaC
 
-Once you're happy with what the scan sees, run `convert`:
-
 ```bash
 # Terraform
-python main.py convert --region us-east-1 --format terraform --output ./infra
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID=your_key \
+  -e AWS_SECRET_ACCESS_KEY=your_secret \
+  -v $(pwd)/output:/output \
+  yourusername/cloud-to-iac:latest \
+  convert --region us-east-1 --format terraform --output /output
 
 # CloudFormation
-python main.py convert --region us-east-1 --format cloudformation --output ./infra
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID=your_key \
+  -e AWS_SECRET_ACCESS_KEY=your_secret \
+  -v $(pwd)/output:/output \
+  yourusername/cloud-to-iac:latest \
+  convert --region us-east-1 --format cloudformation --output /output
 ```
 
-This writes three files:
-- `infra/main.tf` (or `template.yaml` for CloudFormation)
-- `infra/inventory.json` — the raw resource data, useful if you need to re-generate later
+This writes two files into `./output/`:
+- `main.tf` (or `template.yaml` for CloudFormation)
+- `inventory.json` — a snapshot of discovered resources
 
 ### Step 3 — Review the output
 
-Open the generated file before doing anything else. The tool tries to produce clean, ready-to-use code but you'll want to check:
-
+Open the generated file before doing anything with it. Check that:
 - Names and tags look right
-- Cross-references resolved correctly (should say `aws_vpc.prod.id`, not a raw ID)
-- Sensitive values like RDS passwords are parameterised (they will be — but double-check)
-- Anything the tool couldn't resolve fell back to a hardcoded string (search for `"vpc-` or `"sg-` in the output to find these)
+- Any raw IDs (search for `"vpc-` or `"sg-`) are things you expected to fall back
+- Sensitive values like RDS passwords are parameterised
 
-### Step 4 — Import resources into Terraform state
+### Step 4 — Import into Terraform state
 
-Generated code is just code — Terraform doesn't know about your existing resources until you import them. Do this for each resource:
+The generated code doesn't automatically import your existing resources into Terraform state — you need to do that yourself.
 
 ```bash
-cd infra
+cd output
 terraform init
 terraform import aws_vpc.prod vpc-0abc1234
 terraform import aws_s3_bucket.my_bucket my-bucket-name
-# ... repeat for each resource
+# repeat for each resource
 ```
 
-Then run `terraform plan` to confirm there are no unintended changes. If the plan is clean (no additions, changes, or deletions), you're good.
+Then run `terraform plan` to confirm no unintended changes before touching anything.
 
-### Step 5 (optional) — Scan only specific resource types
+### Step 5 — Scan only specific resource types
 
-If you only care about certain resources, pass `--resources` to skip everything else:
+Use `--resources` to skip everything you don't need:
 
 ```bash
-python main.py convert --region us-east-1 --resources vpc,subnet,sg,ec2
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID=your_key \
+  -e AWS_SECRET_ACCESS_KEY=your_secret \
+  -v $(pwd)/output:/output \
+  yourusername/cloud-to-iac:latest \
+  convert --region us-east-1 --resources vpc,subnet,sg,ec2,s3 --output /output
 ```
 
-Available filter keys: `vpc`, `subnet`, `igw`, `nat`, `eip`, `rt`, `sg`, `nacl`, `peer`, `endpoint`, `ec2`, `lambda`, `ecs`, `ecstask`, `ecssvc`, `eks`, `ecr`, `s3`, `rds`, `dynamo`, `cache`, `efs`, `ebs`, `apigw`, `httpapi`, `cf`, `r53`, `acm`, `sns`, `sqs`, `kinesis`, `eb`, `secret`, `kms`, `alarm`, `logs`, `pipeline`, `build`, `waf`, `iam`, `alb`, `asg`
+Available filter keys:
 
-### Step 6 (optional) — Re-generate from a saved snapshot
+| Key | Resource | Key | Resource |
+|-----|----------|-----|----------|
+| `vpc` | VPCs | `apigw` | API Gateway REST |
+| `subnet` | Subnets | `httpapi` | API Gateway HTTP |
+| `igw` | Internet Gateways | `cf` | CloudFront |
+| `nat` | NAT Gateways | `r53` | Route 53 |
+| `eip` | Elastic IPs | `acm` | ACM Certificates |
+| `rt` | Route Tables | `sns` | SNS Topics |
+| `sg` | Security Groups | `sqs` | SQS Queues |
+| `nacl` | Network ACLs | `kinesis` | Kinesis Streams |
+| `peer` | VPC Peering | `eb` | EventBridge Rules |
+| `endpoint` | VPC Endpoints | `secret` | Secrets Manager |
+| `ec2` | EC2 Instances | `kms` | KMS Keys |
+| `lambda` | Lambda Functions | `alarm` | CloudWatch Alarms |
+| `ecs` | ECS Clusters | `logs` | Log Groups |
+| `ecstask` | ECS Task Definitions | `pipeline` | CodePipelines |
+| `ecssvc` | ECS Services | `build` | CodeBuild |
+| `eks` | EKS Clusters | `waf` | WAF Web ACLs |
+| `ecr` | ECR Repositories | `iam` | IAM Roles |
+| `s3` | S3 Buckets | `alb` | Load Balancers |
+| `rds` | RDS Instances | `asg` | Auto Scaling Groups |
+| `dynamo` | DynamoDB Tables | `cache` | ElastiCache |
+| `efs` | EFS File Systems | `ebs` | EBS Volumes |
 
-If you've already scanned and saved `inventory.json`, you can re-generate code from it without hitting AWS again:
+### Step 6 — Re-generate from a saved snapshot
+
+If you already have an `inventory.json` from a previous scan, you can re-generate code without hitting AWS again:
 
 ```bash
-python main.py generate ./infra/inventory.json --format terraform --region us-east-1
+docker run --rm \
+  -v $(pwd)/output:/output \
+  yourusername/cloud-to-iac:latest \
+  generate /output/inventory.json --format terraform --region us-east-1 --output /output
 ```
 
-Useful if you want to switch from Terraform to CloudFormation, or try the `--ai` flag after the fact.
+Useful if you want to switch output format or retry after making changes.
 
-### Step 7 (optional) — AI cleanup
+### Step 7 — AI cleanup (optional)
 
-Pass `--ai` to send the generated code through Claude for a cleanup pass. It rewrites variable names, fixes obvious dependency ordering issues, and flags anything that looks like a security problem.
+Pass `--ai` to send the generated code through Claude for a cleanup pass — better variable names, dependency ordering, and security flags.
 
 ```bash
-# You need ANTHROPIC_API_KEY set in .env for this
-python main.py convert --region us-east-1 --format terraform --ai
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID=your_key \
+  -e AWS_SECRET_ACCESS_KEY=your_secret \
+  -e ANTHROPIC_API_KEY=your_anthropic_key \
+  -v $(pwd)/output:/output \
+  yourusername/cloud-to-iac:latest \
+  convert --region us-east-1 --ai --output /output
 ```
 
 ---
@@ -209,13 +212,13 @@ python main.py convert --region us-east-1 --format terraform --ai
 ## CloudFormation workflow
 
 ```bash
-# Validate first
+# Validate the template
 aws cloudformation validate-template \
-  --template-body file://infra/template.yaml
+  --template-body file://output/template.yaml
 
 # Deploy
 aws cloudformation deploy \
-  --template-file infra/template.yaml \
+  --template-file output/template.yaml \
   --stack-name my-stack \
   --capabilities CAPABILITY_NAMED_IAM
 ```
@@ -236,6 +239,8 @@ aws cloudformation deploy \
 ---
 
 ## Required IAM permissions
+
+The AWS identity you use needs at minimum read access to the services you want to scan. Here's the full policy for scanning everything:
 
 ```json
 {
@@ -297,32 +302,7 @@ aws cloudformation deploy \
 
 ## Limitations
 
-- **Terraform state**: the generated code doesn't automatically import your resources into state. You still need to run `terraform import` for each resource before `terraform apply` will work safely.
-- **Multi-region**: one run covers one region. If you have resources spread across regions, run the tool once per region and combine the outputs.
-- **Point-in-time snapshot**: the generated code reflects your infrastructure at the moment you ran the scan. Resources created or changed afterwards won't be included.
-- **STS credential lifetime**: if you're using `--role-arn`, the assumed credentials expire after 1 hour by default. The tool prints the exact expiry time when a scan starts. For very large accounts, use `--resources` to scan in smaller targeted batches.
-
----
-
-## Project structure
-
-```
-cloud-to-iac/
-├── main.py                  # CLI — three commands: convert, scan, generate
-├── requirements.txt
-├── .env.example
-├── discoverer/
-│   └── aws_discoverer.py    # All the boto3 API calls live here
-├── generators/
-│   ├── terraform.py         # Turns the inventory into .tf files
-│   ├── cloudformation.py    # Turns the inventory into CloudFormation YAML
-│   └── ai_enhancer.py       # Sends output to Claude for cleanup
-└── utils/
-    └── helpers.py           # Shared utilities: slugify, tag formatting, etc.
-```
-
----
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+- **Terraform state** — generated code doesn't import resources into state automatically. Run `terraform import` for each resource before using `terraform apply`.
+- **Multi-region** — one run covers one region. Run the container separately for each region you need.
+- **Point-in-time snapshot** — the output reflects your infrastructure at the time of the scan. Resources created or changed afterwards won't be included.
+- **STS credential lifetime** — when using `--role-arn`, assumed credentials expire after 1 hour by default. The tool prints the expiry time at the start of the scan. For very large accounts, use `--resources` to scan in smaller batches.
