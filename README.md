@@ -8,14 +8,14 @@ Connects to your live AWS account, discovers what's running, and writes it all o
 
 - Docker installed and running
 - AWS credentials (access keys, a named profile, or an IAM role)
-- The image pulled from the private registry (contact the distributor for access)
+- The image pulled from Docker Hub (`tektribe/cloud-to-iac`)
 
 ---
 
 ## Pull the image
 
 ```bash
-docker pull yourusername/cloud-to-iac:latest
+docker pull tektribe/cloud-to-iac:latest
 ```
 
 ---
@@ -28,7 +28,7 @@ docker run --rm \
   -e AWS_SECRET_ACCESS_KEY=your_secret \
   -e AWS_DEFAULT_REGION=us-east-1 \
   -v $(pwd)/output:/output \
-  yourusername/cloud-to-iac:latest \
+  tektribe/cloud-to-iac:latest \
   convert --region us-east-1 --format terraform --output /output
 ```
 
@@ -47,7 +47,7 @@ docker run --rm \
   -e AWS_ACCESS_KEY_ID=your_key \
   -e AWS_SECRET_ACCESS_KEY=your_secret \
   -v $(pwd)/output:/output \
-  yourusername/cloud-to-iac:latest \
+  tektribe/cloud-to-iac:latest \
   convert --region us-east-1 --output /output
 ```
 
@@ -59,7 +59,7 @@ If you already have profiles set up in `~/.aws`, mount the whole directory:
 docker run --rm \
   -v ~/.aws:/root/.aws:ro \
   -v $(pwd)/output:/output \
-  yourusername/cloud-to-iac:latest \
+  tektribe/cloud-to-iac:latest \
   convert --region us-east-1 --profile your-profile --output /output
 ```
 
@@ -70,7 +70,7 @@ docker run --rm \
   -e AWS_ACCESS_KEY_ID=your_key \
   -e AWS_SECRET_ACCESS_KEY=your_secret \
   -v $(pwd)/output:/output \
-  yourusername/cloud-to-iac:latest \
+  tektribe/cloud-to-iac:latest \
   convert --region us-east-1 \
   --role-arn arn:aws:iam::123456789012:role/ReadOnlyRole \
   --output /output
@@ -90,7 +90,7 @@ Run `scan` to see what will be discovered. It's read-only and writes no files.
 docker run --rm \
   -e AWS_ACCESS_KEY_ID=your_key \
   -e AWS_SECRET_ACCESS_KEY=your_secret \
-  yourusername/cloud-to-iac:latest \
+  tektribe/cloud-to-iac:latest \
   scan --region us-east-1
 ```
 
@@ -104,7 +104,7 @@ docker run --rm \
   -e AWS_ACCESS_KEY_ID=your_key \
   -e AWS_SECRET_ACCESS_KEY=your_secret \
   -v $(pwd)/output:/output \
-  yourusername/cloud-to-iac:latest \
+  tektribe/cloud-to-iac:latest \
   convert --region us-east-1 --format terraform --output /output
 
 # CloudFormation
@@ -112,7 +112,7 @@ docker run --rm \
   -e AWS_ACCESS_KEY_ID=your_key \
   -e AWS_SECRET_ACCESS_KEY=your_secret \
   -v $(pwd)/output:/output \
-  yourusername/cloud-to-iac:latest \
+  tektribe/cloud-to-iac:latest \
   convert --region us-east-1 --format cloudformation --output /output
 ```
 
@@ -150,7 +150,7 @@ docker run --rm \
   -e AWS_ACCESS_KEY_ID=your_key \
   -e AWS_SECRET_ACCESS_KEY=your_secret \
   -v $(pwd)/output:/output \
-  yourusername/cloud-to-iac:latest \
+  tektribe/cloud-to-iac:latest \
   convert --region us-east-1 --resources vpc,subnet,sg,ec2,s3 --output /output
 ```
 
@@ -187,7 +187,7 @@ If you already have an `inventory.json` from a previous scan, you can re-generat
 ```bash
 docker run --rm \
   -v $(pwd)/output:/output \
-  yourusername/cloud-to-iac:latest \
+  tektribe/cloud-to-iac:latest \
   generate /output/inventory.json --format terraform --region us-east-1 --output /output
 ```
 
@@ -203,7 +203,7 @@ docker run --rm \
   -e AWS_SECRET_ACCESS_KEY=your_secret \
   -e ANTHROPIC_API_KEY=your_anthropic_key \
   -v $(pwd)/output:/output \
-  yourusername/cloud-to-iac:latest \
+  tektribe/cloud-to-iac:latest \
   convert --region us-east-1 --ai --output /output
 ```
 

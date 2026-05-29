@@ -1,4 +1,4 @@
-# Build & Publish Guide
+docker # Build & Publish Guide
 
 This document is for packaging and distributing the Docker image. Keep it private.
 
@@ -49,12 +49,12 @@ Pick one of the options below depending on where you're hosting it.
 docker login
 
 # Tag for your Docker Hub username
-docker tag cloud-to-iac:latest yourusername/cloud-to-iac:latest
-docker tag cloud-to-iac:1.0.0 yourusername/cloud-to-iac:1.0.0
+docker tag cloud-to-iac:latest tektribe/cloud-to-iac:latest
+docker tag cloud-to-iac:1.0.0 tektribe/cloud-to-iac:1.0.0
 
 # Push
-docker push yourusername/cloud-to-iac:latest
-docker push yourusername/cloud-to-iac:1.0.0
+docker push tektribe/cloud-to-iac:latest
+docker push tektribe/cloud-to-iac:1.0.0
 ```
 
 Make sure the repo is set to **Private** in Docker Hub settings before pushing.
@@ -97,11 +97,11 @@ docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/cloud-to-iac:1.0.0
 echo YOUR_PAT | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
 
 # Tag and push
-docker tag cloud-to-iac:latest ghcr.io/yourusername/cloud-to-iac:latest
-docker tag cloud-to-iac:1.0.0  ghcr.io/yourusername/cloud-to-iac:1.0.0
+docker tag cloud-to-iac:latest ghcr.io/tektribe/cloud-to-iac:latest
+docker tag cloud-to-iac:1.0.0  ghcr.io/tektribe/cloud-to-iac:1.0.0
 
-docker push ghcr.io/yourusername/cloud-to-iac:latest
-docker push ghcr.io/yourusername/cloud-to-iac:1.0.0
+docker push ghcr.io/tektribe/cloud-to-iac:latest
+docker push ghcr.io/tektribe/cloud-to-iac:1.0.0
 ```
 
 After pushing, go to the package settings on GitHub and set visibility to **Private**.
@@ -115,8 +115,8 @@ After pushing, go to the package settings on GitHub and set visibility to **Priv
 docker build -t cloud-to-iac:1.1.0 -t cloud-to-iac:latest .
 
 # Push both tags so :latest always points to the newest release
-docker push yourusername/cloud-to-iac:1.1.0
-docker push yourusername/cloud-to-iac:latest
+docker push tektribe/cloud-to-iac:1.1.0
+docker push tektribe/cloud-to-iac:latest
 ```
 
 Keep a changelog somewhere so you remember what changed between versions.
